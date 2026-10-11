@@ -91,6 +91,12 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 }
 .slot.done .slot-no { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .slot-title { font-weight: 600; font-size: 16px; flex: 1; }
+/* 시간대 안내 (2일차 점심: 카페가 다름) */
+.slot-notice {
+  margin: 0; font-size: 13px; line-height: 1.5; color: var(--hot); background: var(--hot-soft);
+  border-radius: 8px; padding: 8px 10px; display: flex; gap: 6px; align-items: flex-start;
+}
+.slot-notice::before { content: "!"; flex: none; width: 16px; height: 16px; margin-top: 1px; border-radius: 50%; background: var(--hot); color: var(--hot-soft); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
 .slot-state { font-size: 12px; color: var(--muted); }
 .slot.done .slot-state { color: var(--accent); font-weight: 600; }
 
@@ -276,6 +282,7 @@ td.x button:hover { color: var(--danger); }
       <button class="ghost small" id="sheet-close" type="button">닫기</button>
     </div>
     <input type="search" id="search" placeholder="음료 이름으로 찾기 (예: 라떼)" autocomplete="off">
+    <p class="slot-notice" id="sheet-notice" hidden></p>
     <div class="cats" id="cats"></div>
   </div>
   <div class="sheet-body" id="sheet-body"></div>
@@ -368,7 +375,8 @@ const SLOTS = [
   { key: "d1_am", title: "1일차 아침" },
   { key: "d1_pm", title: "1일차 점심" },
   { key: "d2_am", title: "2일차 아침" },
-  { key: "d2_pm", title: "2일차 점심", menu: "lunch2" }, // 다른 카페: 선생님 음료 주문 메뉴(drink_menu)
+  { key: "d2_pm", title: "2일차 점심", menu: "lunch2",
+    notice: "2일차 점심만 카페가 달라져서 메뉴구성이 기존과 달라짐을 알려 드립니다." }, // 다른 카페: 선생님 음료 주문 메뉴(drink_menu)
 ];
 
 // 메뉴는 페이지를 열 때마다 DB의 expo_menu 테이블에서 새로 불러온다 (5,000원 이하 + 예외로 ICE 카페 라떼 사이즈업).
@@ -472,6 +480,10 @@ function renderSlots() {
       <button type="button" class="pick"></button>
       <div class="slot-actions"></div>`;
     card.querySelector(".slot-title").textContent = s.title;
+    if (s.notice) {
+      const n = document.createElement("p"); n.className = "slot-notice"; n.textContent = s.notice;
+      card.querySelector(".slot-head").after(n);
+    }
     card.querySelector(".slot-state").textContent = v === undefined ? "아직 안 골랐어요" : v === null ? "안 마셔요" : "골랐어요";
 
     const pick = card.querySelector(".pick");
@@ -547,7 +559,10 @@ $("teacher-name").addEventListener("input", updateBar);
 let sheetSlot = null;
 function openSheet(slot) {
   sheetSlot = slot;
-  $("sheet-title").textContent = SLOTS.find((s) => s.key === slot).title + " 음료";
+  const info = SLOTS.find((s) => s.key === slot);
+  $("sheet-title").textContent = info.title + " 음료";
+  $("sheet-notice").textContent = info.notice || "";
+  $("sheet-notice").hidden = !info.notice;
   $("search").value = "";
   renderSheet();
   $("sheet").showModal();
