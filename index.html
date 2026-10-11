@@ -254,8 +254,14 @@ h2 { font-family: var(--font-display); font-size: 22px; margin: 0; }
 const SUPABASE_URL = "https://ooirdvyqpdtvxsmatwda.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vaXJkdnlxcGR0dnhzbWF0d2RhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MTg4NTEsImV4cCI6MjEwNTk5NDg1MX0.FgFr8r5bEomarwCmgbbqgl64ca6bp0XqesTpOizBH5I";
 
-// 메뉴. DB의 drink_menu 테이블과 같은 내용이어야 한다 (DB가 이 목록 밖의 음료는 거절한다).
-const MENU = [
+// 메뉴는 페이지를 열 때마다 DB의 drink_menu 테이블에서 새로 불러온다.
+// 브라우저가 옛 페이지를 캐시해 둬도 메뉴는 항상 DB와 같다.
+// 아래 목록은 DB를 못 불러왔을 때 잠깐 보여줄 예비용.
+const toItem = (label) => {
+  const m = label.match(/^(ICE|HOT)\)\s*(.+)$/);
+  return m ? { temp: m[1], name: m[2], label } : { temp: "", name: label, label };
+};
+let MENU = [
   ["ICE", "아메리카노"],
   ["HOT", "아메리카노"],
   ["ICE", "디카페인 콜드브루"],
@@ -271,7 +277,7 @@ const MENU = [
   ["ICE", "복숭아 아이스티"],
   ["ICE", "수제청 딸기라떼"],
   ["ICE", "리얼 수박주스"],
-].map(([temp, name]) => ({ temp, name, label: `${temp}) ${name}` }));
+].map(([temp, name]) => toItem(`${temp}) ${name}`));
 
 const $ = (id) => document.getElementById(id);
 const db = window.supabase && !SUPABASE_URL.startsWith("__")
@@ -280,18 +286,35 @@ const db = window.supabase && !SUPABASE_URL.startsWith("__")
 
 // ---------- 주문 화면 ----------
 const menuEl = $("menu");
-MENU.forEach((m, i) => {
-  const wrap = document.createElement("div");
-  wrap.className = "opt";
-  wrap.innerHTML = `
-    <input type="radio" name="drink" id="drink-${i}" value="${m.label}">
-    <label for="drink-${i}">
-      <span class="dot"></span>
-      <span class="temp ${m.temp.toLowerCase()}">${m.temp}</span>
-      <span class="name">${m.name}</span>
-    </label>`;
-  menuEl.appendChild(wrap);
-});
+function renderMenu() {
+  const picked = selectedDrink();
+  menuEl.querySelectorAll(".opt").forEach((el) => el.remove());
+  MENU.forEach((m, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "opt";
+    const input = document.createElement("input");
+    input.type = "radio"; input.name = "drink"; input.id = "drink-" + i; input.value = m.label;
+    input.checked = m.label === picked;
+    const label = document.createElement("label");
+    label.htmlFor = input.id;
+    label.innerHTML = '<span class="dot"></span><span class="temp"></span><span class="name"></span>';
+    const temp = label.querySelector(".temp");
+    temp.textContent = m.temp;
+    temp.classList.add(m.temp.toLowerCase() || "none");
+    temp.hidden = !m.temp;
+    label.querySelector(".name").textContent = m.name;
+    wrap.append(input, label);
+    menuEl.appendChild(wrap);
+  });
+  updateBar();
+}
+async function loadMenu() {
+  if (!db) return;
+  const { data, error } = await db.from("drink_menu").select("label").order("sort");
+  if (error || !data || !data.length) return; // 못 불러오면 예비 목록 그대로
+  MENU = data.map((r) => toItem(r.label));
+  renderMenu();
+}
 
 function selectedDrink() {
   const r = document.querySelector('input[name="drink"]:checked');
@@ -325,7 +348,16 @@ $("order-form").addEventListener("submit", async (e) => {
   const { data, error } = await db.rpc("submit_drink_order", { p_name: name, p_drink: drink });
   btn.textContent = "제출하기";
   updateBar();
-  if (error) return showError($("order-error"), "제출하지 못했어요. 잠시 후 다시 눌러주세요. (" + error.message + ")");
+  if (error) {
+    if (error.message.includes("invalid_drink")) {
+      await loadMenu();
+      return showError($("order-error"), "고르신 음료가 메뉴에서 빠졌어요. 바뀐 메뉴에서 다시 골라주세요.");
+    }
+    if (error.message.includes("invalid_name")) {
+      return showError($("order-error"), "이름은 1~20글자로 적어주세요.");
+    }
+    return showError($("order-error"), "제출하지 못했어요. 인터넷 연결을 확인하고 다시 눌러주세요.");
+  }
 
   $("done-note").textContent = data.updated ? "이전 주문을 바꿨어요" : "주문이 접수됐어요";
   $("done-name").textContent = data.name + " 선생님";
@@ -444,7 +476,8 @@ function show(view) {
 function route() { show(location.hash === "#admin" ? "admin" : "order"); }
 window.addEventListener("hashchange", route);
 route();
-updateBar();
+renderMenu();
+loadMenu();
 </script>
 </body>
 </html>
