@@ -78,7 +78,7 @@ input[type="text"]:focus, input[type="password"]:focus { outline: none; border-c
 .opt { position: relative; }
 .opt input { position: absolute; opacity: 0; pointer-events: none; }
 .opt label {
-  display: grid; grid-template-columns: 22px auto 1fr auto; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: 22px auto 1fr; align-items: center; gap: 10px;
   background: var(--surface); border: 1.5px solid var(--line); border-radius: 10px;
   padding: 11px 14px; cursor: pointer; transition: border-color .12s, background .12s;
 }
@@ -92,7 +92,6 @@ input[type="text"]:focus, input[type="password"]:focus { outline: none; border-c
 .temp.ice { color: var(--ice); background: var(--ice-soft); }
 .temp.hot { color: var(--hot); background: var(--hot-soft); }
 .name { min-width: 0; }
-.extra { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .bar {
   position: fixed; left: 0; right: 0; bottom: 0;
@@ -151,7 +150,6 @@ textarea {
 }
 h2 { font-family: var(--font-display); font-size: 22px; margin: 0; }
 
-@media (min-width: 520px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -224,9 +222,7 @@ h2 { font-family: var(--font-display); font-size: 22px; margin: 0; }
   <section id="admin-body" hidden style="display:grid;gap:24px">
     <div class="stats">
       <div class="stat"><div class="k">주문한 사람</div><div class="v" id="stat-people">0</div></div>
-      <div class="stat"><div class="k">음료 종류</div><div class="v" id="stat-kinds">0</div></div>
-      <div class="stat"><div class="k">추가금 합계</div><div class="v" id="stat-extra">0원</div></div>
-    </div>
+      <div class="stat"><div class="k">음료 종류</div><div class="v" id="stat-kinds">0</div></div>    </div>
 
     <div class="row">
       <button class="ghost small" id="refresh-btn">새로고침</button>
@@ -260,23 +256,21 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 // 메뉴. DB의 drink_menu 테이블과 같은 내용이어야 한다 (DB가 이 목록 밖의 음료는 거절한다).
 const MENU = [
-  ["ICE", "아메리카노", 0],
-  ["HOT", "아메리카노", 0],
-  ["ICE", "디카페인 콜드브루", 700],
-  ["HOT", "디카페인 콜드브루", 700],
-  ["ICE", "소금 슈패너 오리지널", 1700],
-  ["ICE", "소금 슈패너 디카페인", 2000],
-  ["ICE", "카페라떼", 500],
-  ["HOT", "카페라떼", 500],
-  ["ICE", "디카페인 카페라떼", 1000],
-  ["HOT", "디카페인 카페라떼", 1000],
-  ["ICE", "바닐라라떼", 700],
-  ["HOT", "바닐라라떼", 700],
-  ["ICE", "연유라떼", 700],
-].map(([temp, name, extra]) => ({ temp, name, extra, label: `${temp}) ${name}` }));
+  ["ICE", "아메리카노"],
+  ["HOT", "아메리카노"],
+  ["ICE", "디카페인 콜드브루"],
+  ["HOT", "디카페인 콜드브루"],
+  ["ICE", "소금 슈패너 오리지널"],
+  ["ICE", "카페라떼"],
+  ["HOT", "카페라떼"],
+  ["ICE", "디카페인 카페라떼"],
+  ["HOT", "디카페인 카페라떼"],
+  ["ICE", "바닐라라떼"],
+  ["HOT", "바닐라라떼"],
+  ["ICE", "연유라떼"],
+].map(([temp, name]) => ({ temp, name, label: `${temp}) ${name}` }));
 
 const $ = (id) => document.getElementById(id);
-const won = (n) => n.toLocaleString("ko-KR") + "원";
 const db = window.supabase && !SUPABASE_URL.startsWith("__")
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
@@ -292,7 +286,6 @@ MENU.forEach((m, i) => {
       <span class="dot"></span>
       <span class="temp ${m.temp.toLowerCase()}">${m.temp}</span>
       <span class="name">${m.name}</span>
-      <span class="extra">${m.extra ? "+" + won(m.extra) : ""}</span>
     </label>`;
   menuEl.appendChild(wrap);
 });
@@ -377,10 +370,8 @@ function renderOrders() {
   const order = MENU.map((m) => m.label);
   const groups = [...byDrink.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
 
-  const extraOf = (label) => (MENU.find((m) => m.label === label) || { extra: 0 }).extra;
   $("stat-people").textContent = lastRows.length;
   $("stat-kinds").textContent = groups.length;
-  $("stat-extra").textContent = won(lastRows.reduce((s, r) => s + extraOf(r.drink), 0));
 
   const box = $("groups");
   box.innerHTML = "";
