@@ -195,7 +195,7 @@ dialog#sheet::backdrop { background: var(--shade); }
 .stat .k { font-size: 12px; color: var(--muted); }
 .stat .v { font-family: var(--font-mono); font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tabs { display: flex; gap: 4px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; padding: 4px; }
-.tabs button { flex: 1; padding: 8px 6px; font-size: 14px; background: transparent; color: var(--muted); border-radius: 8px; }
+.tabs button { flex: 1; min-width: 0; padding: 8px 4px; font-size: 13px; line-height: 1.35; background: transparent; color: var(--muted); border-radius: 8px; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 .slot-total { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; color: var(--muted); }
 .slot-total b { font-family: var(--font-mono); color: var(--ink); font-weight: 500; }
@@ -231,7 +231,7 @@ td.x button:hover { color: var(--danger); }
   <header>
     <span class="eyebrow">박람회 음료 주문</span>
     <h1>박람회 기간에 드실 음료를 골라주세요</h1>
-    <p class="lede">1일차 아침, 1일차 점심, 2일차 아침 세 번 음료를 준비해 드려요. 로그인은 필요 없어요.</p>
+    <p class="lede">1일차 아침·점심, 2일차 아침·점심 네 번 음료를 준비해 드려요. 2일차 점심은 다른 카페 메뉴에서 골라요. 로그인은 필요 없어요.</p>
   </header>
 
   <form id="order-form" novalidate style="display:grid;gap:26px">
@@ -310,7 +310,7 @@ td.x button:hover { color: var(--danger); }
     <div class="stats">
       <div class="stat"><div class="k">주문한 사람</div><div class="v" id="stat-people">0</div></div>
       <div class="stat"><div class="k">전체 잔 수</div><div class="v" id="stat-cups">0</div></div>
-      <div class="stat"><div class="k">전체 금액</div><div class="v" id="stat-won">0</div></div>
+      <div class="stat"><div class="k">금액 (2일차 점심 제외)</div><div class="v" id="stat-won">0</div></div>
     </div>
 
     <div class="row">
@@ -356,6 +356,7 @@ const SLOTS = [
   { key: "d1_am", title: "1일차 아침" },
   { key: "d1_pm", title: "1일차 점심" },
   { key: "d2_am", title: "2일차 아침" },
+  { key: "d2_pm", title: "2일차 점심", menu: "lunch2" }, // 다른 카페: 선생님 음료 주문 메뉴(drink_menu)
 ];
 
 // 메뉴는 페이지를 열 때마다 DB의 expo_menu 테이블에서 새로 불러온다 (5,000원 이하만 들어 있음).
@@ -384,6 +385,17 @@ let MENU = [
   ["차", "HOT) 생강차", 3200],
 ].map(([category, label, price]) => ({ category, label, price }));
 
+// 2일차 점심 메뉴. 선생님 음료 주문 페이지(../)와 같은 drink_menu 테이블에서 불러온다.
+// 아래 목록은 DB를 못 불러왔을 때 잠깐 보여줄 예비용.
+const LUNCH2_CATEGORY = "2일차 점심 메뉴";
+let LUNCH2 = [
+  "ICE) 아메리카노", "HOT) 아메리카노", "ICE) 디카페인 콜드브루", "HOT) 디카페인 콜드브루",
+  "ICE) 카페라떼", "HOT) 카페라떼", "ICE) 디카페인 카페라떼", "HOT) 디카페인 카페라떼",
+  "ICE) 바닐라라떼", "HOT) 바닐라라떼", "ICE) 연유라떼", "HOT) 연유라떼",
+  "ICE) 복숭아 아이스티", "ICE) 수제청 딸기라떼", "ICE) 리얼 수박주스",
+].map((label) => ({ category: LUNCH2_CATEGORY, label }));
+const menuFor = (slot) => (SLOTS.find((s) => s.key === slot)?.menu === "lunch2" ? LUNCH2 : MENU);
+
 const $ = (id) => document.getElementById(id);
 const db = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const won = (n) => n.toLocaleString("ko-KR") + "원";
@@ -399,9 +411,9 @@ function tempPill(temp) {
 }
 
 // 메뉴를 "카테고리 → 음료 이름 → HOT/ICE" 로 묶는다
-function grouped() {
+function grouped(menu) {
   const cats = new Map();
-  for (const m of MENU) {
+  for (const m of menu) {
     const { temp, name } = splitLabel(m.label);
     if (!cats.has(m.category)) cats.set(m.category, new Map());
     const drinks = cats.get(m.category);
@@ -410,9 +422,9 @@ function grouped() {
   }
   return cats;
 }
-const menuHas = (label) => MENU.some((m) => m.label === label);
-// 디카페인은 커피 메뉴에만 붙일 수 있다
-const isCoffee = (label) => MENU.some((m) => m.label === label && m.category === "커피");
+const menuHas = (slot, label) => menuFor(slot).some((m) => m.label === label);
+// 디카페인은 박람회 카페의 커피 메뉴에만 붙일 수 있다 (2일차 점심 메뉴엔 디카페인 음료가 따로 있음)
+const isCoffee = (slot, label) => menuFor(slot) === MENU && MENU.some((m) => m.label === label && m.category === "커피");
 const withNote = (drink, decaf) => drink + (decaf ? " (디카페인)" : "");
 
 // ---------- 주문 상태 ----------
@@ -469,7 +481,7 @@ function renderSlots() {
 
     const actions = card.querySelector(".slot-actions");
     // 커피 메뉴면 디카페인으로 바꿀 수 있다 (비고)
-    if (typeof v === "string" && isCoffee(v)) {
+    if (typeof v === "string" && isCoffee(s.key, v)) {
       const dc = document.createElement("button");
       dc.type = "button"; dc.className = "chip decaf";
       dc.textContent = "디카페인으로";
@@ -477,10 +489,10 @@ function renderSlots() {
       dc.addEventListener("click", () => { if (decaf[s.key]) delete decaf[s.key]; else decaf[s.key] = true; renderSlots(); });
       actions.append(dc);
     }
-    // 앞 시간대에 고른 음료를 그대로 쓰기 (디카페인 여부까지)
+    // 앞 시간대에 고른 음료를 그대로 쓰기 (디카페인 여부까지). 이 시간대 메뉴에도 있는 음료일 때만.
     const pk = i > 0 ? SLOTS[i - 1].key : null;
     const prev = pk ? picks[pk] : undefined;
-    if (typeof prev === "string" && (prev !== v || !!decaf[pk] !== !!decaf[s.key])) {
+    if (typeof prev === "string" && menuHas(s.key, prev) && (prev !== v || !!decaf[pk] !== !!decaf[s.key])) {
       const same = document.createElement("button");
       same.type = "button"; same.className = "chip";
       same.textContent = "앞과 같은 음료로";
@@ -500,7 +512,7 @@ function renderSlots() {
 }
 function setPick(slot, value) {
   if (value === undefined) delete picks[slot]; else picks[slot] = value;
-  if (typeof value !== "string" || !isCoffee(value)) delete decaf[slot];
+  if (typeof value !== "string" || !isCoffee(slot, value)) delete decaf[slot];
   renderSlots();
 }
 
@@ -513,7 +525,7 @@ function updateBar() {
   const s = $("summary");
   s.innerHTML = "";
   if (ready) { const b = document.createElement("b"); b.textContent = name; s.append(b, ` · 음료 ${drinks}잔`); }
-  else if (decided < SLOTS.length) { const b = document.createElement("b"); b.textContent = `${decided} / 3`; s.append("시간대 ", b, " 골랐어요"); }
+  else if (decided < SLOTS.length) { const b = document.createElement("b"); b.textContent = `${decided} / ${SLOTS.length}`; s.append("시간대 ", b, " 골랐어요"); }
   else if (!drinks) s.textContent = "한 잔 이상 골라주세요";
   else s.textContent = "이름을 적어주세요";
 }
@@ -544,7 +556,7 @@ function renderSheet() {
   const cats = $("cats");
   body.innerHTML = ""; cats.innerHTML = "";
   let count = 0;
-  for (const [cat, drinks] of grouped()) {
+  for (const [cat, drinks] of grouped(menuFor(sheetSlot))) {
     const list = [...drinks].filter(([name]) => !q || name.replace(/\s+/g, "").includes(q));
     if (!list.length) continue;
     const sec = document.createElement("section");
@@ -577,18 +589,25 @@ function renderSheet() {
     c.addEventListener("click", () => sec.scrollIntoView({ behavior: "smooth", block: "start" }));
     cats.append(c);
   }
+  cats.hidden = cats.children.length < 2; // 카테고리가 하나뿐이면 바로가기 버튼은 필요 없다
   if (!count) body.innerHTML = '<p class="empty">찾는 음료가 없어요. 다른 이름으로 찾아보세요.</p>';
 }
 
 async function loadMenu() {
   if (!db) return;
-  const { data, error } = await db.from("expo_menu").select("label, category, price").order("sort");
-  if (error || !data || !data.length) return; // 못 불러오면 예비 목록 그대로
-  MENU = data;
+  const [expo, lunch2] = await Promise.all([
+    db.from("expo_menu").select("label, category, price").order("sort"),
+    db.from("drink_menu").select("label").order("sort"),
+  ]);
+  // 못 불러온 쪽은 예비 목록 그대로
+  if (!expo.error && expo.data && expo.data.length) MENU = expo.data;
+  if (!lunch2.error && lunch2.data && lunch2.data.length) {
+    LUNCH2 = lunch2.data.map((r) => ({ category: LUNCH2_CATEGORY, label: r.label }));
+  }
   // 메뉴에서 빠진 음료를 골라 둔 상태면 다시 고르게
   for (const s of SLOTS) {
-    if (typeof picks[s.key] === "string" && !menuHas(picks[s.key])) delete picks[s.key];
-    if (decaf[s.key] && !isCoffee(picks[s.key])) delete decaf[s.key];
+    if (typeof picks[s.key] === "string" && !menuHas(s.key, picks[s.key])) delete picks[s.key];
+    if (decaf[s.key] && !isCoffee(s.key, picks[s.key])) delete decaf[s.key];
   }
   renderSlots();
 }
@@ -606,8 +625,8 @@ $("order-form").addEventListener("submit", async (e) => {
   btn.disabled = true; btn.textContent = "보내는 중…";
   showError($("order-error"), "");
   const { data, error } = await db.rpc("submit_expo_order", {
-    p_name: name, p_d1_am: picks.d1_am, p_d1_pm: picks.d1_pm, p_d2_am: picks.d2_am,
-    p_decaf: SLOTS.filter((s) => decaf[s.key] && isCoffee(picks[s.key])).map((s) => s.key),
+    p_name: name, p_d1_am: picks.d1_am, p_d1_pm: picks.d1_pm, p_d2_am: picks.d2_am, p_d2_pm: picks.d2_pm,
+    p_decaf: SLOTS.filter((s) => decaf[s.key] && isCoffee(s.key, picks[s.key])).map((s) => s.key),
   });
   btn.textContent = "제출하기";
   updateBar();
@@ -673,12 +692,13 @@ async function loadOrders() {
 }
 
 // 메뉴판 순서대로, 디카페인은 같은 음료 바로 뒤에
-const menuOrder = (key) => {
+const menuOrder = (key, slot) => {
   const dc = key.endsWith(" (디카페인)");
   const label = dc ? key.slice(0, -" (디카페인)".length) : key;
-  const i = MENU.findIndex((m) => m.label === label);
+  const i = menuFor(slot).findIndex((m) => m.label === label);
   return (i < 0 ? 999 : i) + (dc ? 0.5 : 0);
 };
+const hasPrice = (slot) => menuFor(slot) === MENU; // 2일차 점심 카페는 가격표가 없다
 
 function slotGroups(slot) {
   const byDrink = new Map();
@@ -687,14 +707,14 @@ function slotGroups(slot) {
     if (!byDrink.has(key)) byDrink.set(key, []);
     byDrink.get(key).push(r);
   }
-  return [...byDrink.entries()].sort((a, b) => menuOrder(a[0]) - menuOrder(b[0]));
+  return [...byDrink.entries()].sort((a, b) => menuOrder(a[0], slot) - menuOrder(b[0], slot));
 }
 
 function renderAdmin() {
   const people = [...new Set(rows.map((r) => r.teacher_name))];
   $("stat-people").textContent = people.length;
   $("stat-cups").textContent = rows.length;
-  $("stat-won").textContent = rows.reduce((a, r) => a + r.price, 0).toLocaleString("ko-KR");
+  $("stat-won").textContent = rows.reduce((a, r) => a + (r.price || 0), 0).toLocaleString("ko-KR");
 
   // 탭
   const tabs = $("tabs");
@@ -712,9 +732,9 @@ function renderAdmin() {
   // 선택한 시간대: 음료별 묶음
   const groups = slotGroups(tab);
   const slotRows = rows.filter((r) => r.slot === tab);
-  const slotWon = slotRows.reduce((a, r) => a + r.price, 0);
+  const slotWon = slotRows.reduce((a, r) => a + (r.price || 0), 0);
   $("slot-cups").textContent = `${SLOTS.find((s) => s.key === tab).title} · ${slotRows.length}잔`;
-  $("slot-won").textContent = won(slotWon);
+  $("slot-won").textContent = hasPrice(tab) ? won(slotWon) : "가격표 없음";
 
   const box = $("groups");
   box.innerHTML = "";
@@ -737,7 +757,7 @@ function renderAdmin() {
     ? [
         `[박람회 ${title}]`,
         ...groups.map(([d, l]) => `${d} ${l.length}잔`),
-        `총 ${slotRows.length}잔 · ${won(slotWon)}`,
+        hasPrice(tab) ? `총 ${slotRows.length}잔 · ${won(slotWon)}` : `총 ${slotRows.length}잔`,
         "",
         "[누가 무엇을]",
         ...groups.map(([d, l]) => `- ${d}: ${l.map((r) => r.teacher_name).join(", ")}`),
@@ -752,7 +772,7 @@ function renderAdmin() {
   t.append(head);
   if (!people.length) {
     const tr = document.createElement("tr"); const td = document.createElement("td");
-    td.colSpan = 5; td.className = "skip"; td.textContent = "아직 주문한 분이 없어요. 주문 화면 링크를 선생님들께 보내주세요.";
+    td.colSpan = SLOTS.length + 2; td.className = "skip"; td.textContent = "아직 주문한 분이 없어요. 주문 화면 링크를 선생님들께 보내주세요.";
     tr.append(td); t.append(tr);
   }
   for (const name of people.sort((a, b) => a.localeCompare(b, "ko"))) {
@@ -776,7 +796,7 @@ function renderAdmin() {
 }
 
 async function deletePerson(name) {
-  if (!confirm(name + " 선생님의 주문(세 시간대 모두)을 지울까요?")) return;
+  if (!confirm(name + " 선생님의 주문(모든 시간대)을 지울까요?")) return;
   const { error } = await db.rpc("admin_delete_expo_person", { p_pass: adminPass, p_name: name });
   if (error) return showError($("admin-error"), "지우지 못했어요. (" + error.message + ")");
   await loadOrders();
