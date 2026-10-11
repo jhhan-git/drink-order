@@ -220,6 +220,13 @@ td.skip { color: var(--muted); }
 td.x { width: 1%; }
 td.x button { background: transparent; color: var(--muted); padding: 0 6px; font-size: 18px; line-height: 1.2; }
 td.x button:hover { color: var(--danger); }
+/* 시간대별 금액 표 */
+#won-table td.num, #won-table th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#won-table tr.slot-row { cursor: pointer; }
+#won-table tr.slot-row:hover td { background: var(--accent-soft); }
+#won-table tr.slot-row.on td:first-child { color: var(--accent); font-weight: 600; }
+#won-table tr.sum td { font-weight: 600; border-top: 1.5px solid var(--line); }
+.group h3 .sub { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-weight: 500; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -323,6 +330,11 @@ td.x button:hover { color: var(--danger); }
         <button class="danger small" id="clear-yes">네, 전부 지울게요</button>
         <button class="ghost small" id="clear-no">취소</button>
       </div>
+    </div>
+
+    <div class="field">
+      <span class="label">시간대별 금액</span>
+      <div class="table-wrap"><table id="won-table"></table></div>
     </div>
 
     <div class="tabs" role="tablist" id="tabs"></div>
@@ -716,6 +728,28 @@ function renderAdmin() {
   $("stat-cups").textContent = rows.length;
   $("stat-won").textContent = rows.reduce((a, r) => a + (r.price || 0), 0).toLocaleString("ko-KR");
 
+  // 시간대별 금액 표 (가격은 DB에만 있고 선생님 화면엔 안 보인다)
+  const wt = $("won-table");
+  wt.innerHTML = "<tr><th>시간대</th><th class=\"num\">잔 수</th><th class=\"num\">금액</th></tr>";
+  let sumCups = 0, sumWon = 0;
+  for (const s of SLOTS) {
+    const list = rows.filter((r) => r.slot === s.key);
+    const w = list.reduce((a, r) => a + (r.price || 0), 0);
+    const tr = document.createElement("tr");
+    tr.className = "slot-row" + (s.key === tab ? " on" : "");
+    tr.title = s.title + " 자세히 보기";
+    tr.addEventListener("click", () => { tab = s.key; renderAdmin(); });
+    const cells = [s.title, list.length + "잔", hasPrice(s.key) ? won(w) : "가격표 없음"];
+    cells.forEach((txt, i) => { const td = document.createElement("td"); td.textContent = txt; if (i) td.className = "num"; tr.append(td); });
+    wt.append(tr);
+    if (hasPrice(s.key)) { sumCups += list.length; sumWon += w; }
+  }
+  const sum = document.createElement("tr"); sum.className = "sum";
+  const priced = SLOTS.filter((s) => hasPrice(s.key));
+  [priced.length < SLOTS.length ? "합계 (가격표 있는 시간대)" : "합계", sumCups + "잔", won(sumWon)]
+    .forEach((txt, i) => { const td = document.createElement("td"); td.textContent = txt; if (i) td.className = "num"; sum.append(td); });
+  wt.append(sum);
+
   // 탭
   const tabs = $("tabs");
   tabs.innerHTML = "";
@@ -745,6 +779,11 @@ function renderAdmin() {
     h.textContent = drink + " ";
     const c = document.createElement("span"); c.className = "count"; c.textContent = list.length + "잔";
     h.append(c);
+    if (hasPrice(tab)) {
+      const sub = document.createElement("span"); sub.className = "sub";
+      sub.textContent = won(list.reduce((a, r) => a + (r.price || 0), 0));
+      h.append(sub);
+    }
     const ppl = document.createElement("div"); ppl.className = "people";
     for (const r of list) { const p = document.createElement("span"); p.className = "person"; p.textContent = r.teacher_name; ppl.append(p); }
     g.append(h, ppl);
@@ -756,7 +795,7 @@ function renderAdmin() {
   $("copy-text").value = slotRows.length
     ? [
         `[박람회 ${title}]`,
-        ...groups.map(([d, l]) => `${d} ${l.length}잔`),
+        ...groups.map(([d, l]) => hasPrice(tab) ? `${d} ${l.length}잔 (${won(l.reduce((a, r) => a + (r.price || 0), 0))})` : `${d} ${l.length}잔`),
         hasPrice(tab) ? `총 ${slotRows.length}잔 · ${won(slotWon)}` : `총 ${slotRows.length}잔`,
         "",
         "[누가 무엇을]",
