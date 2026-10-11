@@ -120,6 +120,10 @@ button.danger { background: transparent; color: var(--danger); border: 1.5px sol
 button.small { padding: 6px 12px; font-size: 13px; }
 button.chip { padding: 5px 11px; font-size: 13px; font-weight: 500; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; }
 button.chip[aria-pressed="true"] { color: var(--ink); border-color: var(--ink); }
+button.chip.decaf::before { content: "☐ "; }
+button.chip.decaf[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+button.chip.decaf[aria-pressed="true"]::before { content: "☑ "; }
+.note { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; color: var(--accent); border: 1px solid var(--accent); flex: none; }
 
 .bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
@@ -407,18 +411,23 @@ function grouped() {
   return cats;
 }
 const menuHas = (label) => MENU.some((m) => m.label === label);
+// 디카페인은 커피 메뉴에만 붙일 수 있다
+const isCoffee = (label) => MENU.some((m) => m.label === label && m.category === "커피");
+const withNote = (drink, decaf) => drink + (decaf ? " (디카페인)" : "");
 
 // ---------- 주문 상태 ----------
 // picks[slot]: undefined = 아직 안 고름, null = 안 마심, 문자열 = 고른 음료
 let picks = {};
+// decaf[slot]: true = 디카페인으로 (커피 메뉴일 때만)
+let decaf = {};
 const STORE = "expo-order-v1";
 function saveLocal(name) {
-  try { localStorage.setItem(STORE, JSON.stringify({ name, picks })); } catch {}
+  try { localStorage.setItem(STORE, JSON.stringify({ name, picks, decaf })); } catch {}
 }
 function loadLocal() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE) || "null");
-    if (s && s.name) { $("teacher-name").value = s.name; picks = s.picks || {}; }
+    if (s && s.name) { $("teacher-name").value = s.name; picks = s.picks || {}; decaf = s.decaf || {}; }
   } catch {}
 }
 
@@ -447,6 +456,7 @@ function renderSlots() {
       pick.classList.add("chosen");
       if (temp) pick.append(tempPill(temp));
       pick.append(name);
+      if (decaf[s.key]) { const n = document.createElement("span"); n.className = "note"; n.textContent = "디카페인"; pick.append(n); }
     } else if (v === null) {
       pick.classList.add("skipped");
       pick.append("이 시간엔 안 마실게요");
@@ -458,13 +468,23 @@ function renderSlots() {
     pick.addEventListener("click", () => openSheet(s.key));
 
     const actions = card.querySelector(".slot-actions");
-    // 앞 시간대에 고른 음료를 그대로 쓰기
-    const prev = i > 0 ? picks[SLOTS[i - 1].key] : undefined;
-    if (typeof prev === "string" && prev !== v) {
+    // 커피 메뉴면 디카페인으로 바꿀 수 있다 (비고)
+    if (typeof v === "string" && isCoffee(v)) {
+      const dc = document.createElement("button");
+      dc.type = "button"; dc.className = "chip decaf";
+      dc.textContent = "디카페인으로";
+      dc.setAttribute("aria-pressed", String(!!decaf[s.key]));
+      dc.addEventListener("click", () => { if (decaf[s.key]) delete decaf[s.key]; else decaf[s.key] = true; renderSlots(); });
+      actions.append(dc);
+    }
+    // 앞 시간대에 고른 음료를 그대로 쓰기 (디카페인 여부까지)
+    const pk = i > 0 ? SLOTS[i - 1].key : null;
+    const prev = pk ? picks[pk] : undefined;
+    if (typeof prev === "string" && (prev !== v || !!decaf[pk] !== !!decaf[s.key])) {
       const same = document.createElement("button");
       same.type = "button"; same.className = "chip";
       same.textContent = "앞과 같은 음료로";
-      same.addEventListener("click", () => setPick(s.key, prev));
+      same.addEventListener("click", () => { if (decaf[pk]) decaf[s.key] = true; else delete decaf[s.key]; setPick(s.key, prev); });
       actions.append(same);
     }
     const skip = document.createElement("button");
@@ -480,6 +500,7 @@ function renderSlots() {
 }
 function setPick(slot, value) {
   if (value === undefined) delete picks[slot]; else picks[slot] = value;
+  if (typeof value !== "string" || !isCoffee(value)) delete decaf[slot];
   renderSlots();
 }
 
@@ -565,7 +586,10 @@ async function loadMenu() {
   if (error || !data || !data.length) return; // 못 불러오면 예비 목록 그대로
   MENU = data;
   // 메뉴에서 빠진 음료를 골라 둔 상태면 다시 고르게
-  for (const s of SLOTS) if (typeof picks[s.key] === "string" && !menuHas(picks[s.key])) delete picks[s.key];
+  for (const s of SLOTS) {
+    if (typeof picks[s.key] === "string" && !menuHas(picks[s.key])) delete picks[s.key];
+    if (decaf[s.key] && !isCoffee(picks[s.key])) delete decaf[s.key];
+  }
   renderSlots();
 }
 
@@ -583,6 +607,7 @@ $("order-form").addEventListener("submit", async (e) => {
   showError($("order-error"), "");
   const { data, error } = await db.rpc("submit_expo_order", {
     p_name: name, p_d1_am: picks.d1_am, p_d1_pm: picks.d1_pm, p_d2_am: picks.d2_am,
+    p_decaf: SLOTS.filter((s) => decaf[s.key] && isCoffee(picks[s.key])).map((s) => s.key),
   });
   btn.textContent = "제출하기";
   updateBar();
@@ -605,7 +630,7 @@ $("order-form").addEventListener("submit", async (e) => {
     const line = document.createElement("div"); line.className = "line";
     const k = document.createElement("span"); k.className = "k"; k.textContent = s.title;
     const v = document.createElement("span"); v.className = "v";
-    if (picks[s.key]) v.textContent = picks[s.key]; else { v.textContent = "안 마심"; v.classList.add("skip"); }
+    if (picks[s.key]) v.textContent = withNote(picks[s.key], decaf[s.key]); else { v.textContent = "안 마심"; v.classList.add("skip"); }
     line.append(k, v); lines.append(line);
   }
   show("done");
@@ -615,6 +640,7 @@ $("edit-btn").addEventListener("click", () => show("order"));
 $("again-btn").addEventListener("click", () => {
   $("teacher-name").value = "";
   picks = {};
+  decaf = {};
   try { localStorage.removeItem(STORE); } catch {}
   renderSlots();
   show("order");
@@ -646,13 +672,20 @@ async function loadOrders() {
   renderAdmin();
 }
 
-const menuOrder = (label) => { const i = MENU.findIndex((m) => m.label === label); return i < 0 ? 999 : i; };
+// 메뉴판 순서대로, 디카페인은 같은 음료 바로 뒤에
+const menuOrder = (key) => {
+  const dc = key.endsWith(" (디카페인)");
+  const label = dc ? key.slice(0, -" (디카페인)".length) : key;
+  const i = MENU.findIndex((m) => m.label === label);
+  return (i < 0 ? 999 : i) + (dc ? 0.5 : 0);
+};
 
 function slotGroups(slot) {
   const byDrink = new Map();
   for (const r of rows.filter((r) => r.slot === slot)) {
-    if (!byDrink.has(r.drink)) byDrink.set(r.drink, []);
-    byDrink.get(r.drink).push(r);
+    const key = withNote(r.drink, r.decaf);
+    if (!byDrink.has(key)) byDrink.set(key, []);
+    byDrink.get(key).push(r);
   }
   return [...byDrink.entries()].sort((a, b) => menuOrder(a[0]) - menuOrder(b[0]));
 }
@@ -728,7 +761,7 @@ function renderAdmin() {
     for (const s of SLOTS) {
       const r = rows.find((r) => r.teacher_name === name && r.slot === s.key);
       const td = document.createElement("td");
-      if (r) td.textContent = r.drink; else { td.textContent = "–"; td.className = "skip"; }
+      if (r) td.textContent = withNote(r.drink, r.decaf); else { td.textContent = "–"; td.className = "skip"; }
       tr.append(td);
     }
     const x = document.createElement("td"); x.className = "x";
